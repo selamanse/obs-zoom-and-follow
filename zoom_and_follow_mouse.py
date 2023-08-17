@@ -13,7 +13,6 @@ from math import sqrt
 from platform import system
 import pywinctl as pwc
 import obspython as obs
-import pyautogui as pygui
 from typing import NamedTuple, Union, Tuple
 
 description = (
@@ -146,21 +145,10 @@ class CursorWindow:
     mouse_offset_y = 0
 
     def get_cursor_position(self):
-
         mouspos_offset_x = self.mouse_offset_x
-        
         mouspos_offset_y = self.mouse_offset_y
-
-        #log(f"x_off: {mouspos_offset_x}, y_off: {mouspos_offset_y}")
-
-        mousepos_x, mousepos_y = pygui.position()
-
-        #log(f"x: {mousepos_x}, y: {mousepos_y}")
-
-        mousepos = Point((mousepos_x - mouspos_offset_x), (mousepos_y - mouspos_offset_y))
-
-        #log(f"calc mouspos: {mousepos}")
-        
+        mousepos = pwc.getMousePos()
+        mousepos = Point((mousepos.x - mouspos_offset_x), (mousepos.y - mouspos_offset_y))        
         return mousepos
 
     def update_sources(self, settings_update = False):
@@ -689,7 +677,7 @@ class CursorWindow:
                 crop_height = int(self.zoom_h)
                 self.update = False
 
-        self.obs_set_crop_settings(int((curpos.x - 20)), int((curpos.y - 20)), crop_width, crop_height)
+        self.obs_set_crop_settings(int((curpos.x - (crop_width / 2))), int((curpos.y - (crop_height / 2))), crop_width, crop_height)
 
         # Stop ticking when zoom out is complete or
         # when zoomed in and not following the cursor
