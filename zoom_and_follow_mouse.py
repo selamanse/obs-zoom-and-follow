@@ -13,6 +13,8 @@ from math import sqrt
 from platform import system
 import pywinctl as pwc
 import obspython as obs
+import pyautogui as pygui
+from typing import NamedTuple, Union, Tuple
 
 description = (
     "Crops and resizes a source to simulate a zoomed in tracked to"
@@ -33,8 +35,12 @@ description = (
     + f"{version}"
 )
 
-def get_cursor_position():
-    return pwc.getMousePos()
+class Point(NamedTuple):
+    x: int
+    y: int
+
+def getPropAsInt(property):
+    return obs.obs_data_get_int(property, "value")
 
 def log(s):
     global debug
@@ -136,6 +142,26 @@ class CursorWindow:
     max_speed = 160
     smooth = 1.0
     zoom_time = 300
+    mouse_offset_x = 0
+    mouse_offset_y = 0
+
+    def get_cursor_position(self):
+
+        mouspos_offset_x = self.mouse_offset_x
+        
+        mouspos_offset_y = self.mouse_offset_y
+
+        #log(f"x_off: {mouspos_offset_x}, y_off: {mouspos_offset_y}")
+
+        mousepos_x, mousepos_y = pygui.position()
+
+        #log(f"x: {mousepos_x}, y: {mousepos_y}")
+
+        mousepos = Point((mousepos_x - mouspos_offset_x), (mousepos_y - mouspos_offset_y))
+
+        #log(f"calc mouspos: {mousepos}")
+        
+        return mousepos
 
     def update_sources(self, settings_update = False):
         """
@@ -355,7 +381,11 @@ class CursorWindow:
             # Info is stored in a JSON format
             source = obs.obs_get_source_by_name(self.source_name)
             source_settings = obs.obs_source_get_settings(source)
-            data = loads(obs.obs_data_get_json(source_settings))
+            dataJson = obs.obs_data_get_json(obs.obs_data_get_defaults(source_settings))
+            log(f"logging data element")
+            log(dataJson)
+            data = loads(dataJson)
+            log(data)
         except:
             # If it cannot be pulled, it is likely one of the following:
             #   The source no longer exists
@@ -447,7 +477,6 @@ class CursorWindow:
             all connected displays
         :return: If the zoom window was moved
         """
-        track = False
 
         # Don't follow cursor when it is outside the source in both dimensions
         if (mousePos.x > (self.source_x + self.source_w)
@@ -479,8 +508,8 @@ class CursorWindow:
                 self.zoom_y_target + int(self.zoom_h * 0.5)
 
         # Cursor relative to the source, because the crop values are relative
-        source_mouse_x = mousePos.x - self.source_x_raw
-        source_mouse_y = mousePos.y - self.source_y_raw
+        source_mouse_x = mousePos.x 
+        source_mouse_y = mousePos.y
 
         if source_mouse_x < zoom_edge_left:
             self.zoom_x_target += source_mouse_x - zoom_edge_left
@@ -545,14 +574,20 @@ class CursorWindow:
         current location, so there's no visible travel from where the previous
         known location was when zooming in again.
         """
-        mousePos = get_cursor_position()
+        log('center_on_cursor')
+        mousePos = self.get_cursor_position()
+        log(mousePos)
+
+        log(f"zoom_w: {self.zoom_w}")
+        log(f"zoom_h: {self.zoom_h}")
+
         self.zoom_x_target = mousePos.x - self.zoom_w * 0.5
         self.zoom_y_target = mousePos.y - self.zoom_h * 0.5
         # Clamp to a valid location inside the source limits
         self.check_pos()
 
         # Are we fully zoomed out?
-        if self.zi_timer == 0:
+        if not self.lock:
             # Synchronize the current crop zoom location
             self.zoom_x = self.zoom_x_target
             self.zoom_y = self.zoom_y_target
@@ -571,7 +606,12 @@ class CursorWindow:
         source = obs.obs_get_source_by_name(self.source_name)
         crop = obs.obs_source_get_filter_by_name(source, CROP_FILTER_NAME)
 
+        if crop is None and not self.lock:
+            log(f"ignore filter settings for {source}")
+            return
+
         if crop is None:  # create filter
+            log(f"create filter for {source}")
             obs_data = obs.obs_data_create()
             obs.obs_data_set_bool(obs_data, "relative", False)
             obs_crop_filter = obs.obs_source_create_private(
@@ -581,6 +621,12 @@ class CursorWindow:
             obs.obs_source_filter_add(source, obs_crop_filter)
             obs.obs_source_release(obs_crop_filter)
             obs.obs_data_release(obs_data)
+        elif crop is not None and not self.lock: # delete filter
+            log(f"remove filter {crop} from {source}")
+            obs.obs_source_filter_remove(source, crop)
+            obs.obs_source_release(source)
+            obs.obs_source_release(crop)
+            return
 
         crop_settings = obs.obs_source_get_settings(crop)
 
@@ -605,6 +651,7 @@ class CursorWindow:
         """
         totalFrames = int(self.zoom_time / self.refresh_rate)
         crop_left = crop_top = crop_width = crop_height = 0
+        curpos = self.get_cursor_position()
 
         if not self.lock:
             # Zooming out
@@ -642,7 +689,7 @@ class CursorWindow:
                 crop_height = int(self.zoom_h)
                 self.update = False
 
-        self.obs_set_crop_settings(crop_left, crop_top, crop_width, crop_height)
+        self.obs_set_crop_settings(int((curpos.x - 20)), int((curpos.y - 20)), crop_width, crop_height)
 
         # Stop ticking when zoom out is complete or
         # when zoomed in and not following the cursor
@@ -673,7 +720,7 @@ class CursorWindow:
         """
         if self.lock:
             if self.track or self.update:
-                self.follow(get_cursor_position())
+                self.follow(self.get_cursor_position())
         self.set_crop()
 
     def tick(self):
@@ -704,6 +751,8 @@ def script_defaults(settings):
     obs.obs_data_set_default_int(settings, "Zoom", 300)
     obs.obs_data_set_default_int(settings, "Manual X Offset", 0)
     obs.obs_data_set_default_int(settings, "Manual Y Offset", 0)
+    obs.obs_data_set_default_int(settings, "Mouse Offset X", 0)
+    obs.obs_data_set_default_int(settings, "Mouse Offset Y", 0)
     obs.obs_data_set_default_bool(settings, "debug", False)
 
 
@@ -748,6 +797,9 @@ def script_update(settings):
                                                         "Manual X Offset")
             zoom.source_y_offset = obs.obs_data_get_int(settings,
                                                         "Manual Y Offset")
+
+        zoom.mouse_offset_x = obs.obs_data_get_int(settings, "Mouse Offset X")
+        zoom.mouse_offset_y = obs.obs_data_get_int(settings, "Mouse Offset Y")
 
 
         source_string = obs.obs_data_get_string(settings, "source")
@@ -847,8 +899,8 @@ def callback(props, prop, *args):
     debug = obs.obs_properties_get(props, "debug")
     
     if prop_name == "source":
-        if sys != 'Darwin':
-            populate_list_property_with_source_names(prop)
+        #if sys != 'Darwin':
+        #    populate_list_property_with_source_names(prop)
         if source_type in SOURCES.monitor.all_sources():
             obs.obs_property_set_visible(monitor_override, True)
             obs.obs_property_set_visible(refresh_monitor, True)
@@ -874,6 +926,12 @@ def callback(props, prop, *args):
     obs.obs_property_set_visible(
         obs.obs_properties_get(props, "Manual Y Offset"),
         zoom.manual_offset)
+    obs.obs_property_set_visible(
+        obs.obs_properties_get(props, "Mouse Offset X"),
+        True)
+    obs.obs_property_set_visible(
+        obs.obs_properties_get(props, "Mouse Offset Y"),
+        True)
     monitor = obs.obs_properties_get(props, "monitor")
     obs.obs_property_set_visible(monitor, zoom.monitor_override
                                  and obs.obs_property_visible(monitor_override))
@@ -928,7 +986,11 @@ def script_properties():
                                        "Monitor Width", "Manual Monitor Width", -8000, 8000, 1)
     mon_h = obs.obs_properties_add_int(props,
                                        "Monitor Height", "Manual Monitor Height", -8000, 8000, 1)
-
+    
+    mouse_offset_x = obs.obs_properties_add_int(props,
+                                       "Mouse Offset X", "Mouse Offset X", -8000, 8000, 1)
+    mouse_offset_y = obs.obs_properties_add_int(props,
+                                       "Mouse Offset Y", "Mouse Offset Y", -8000, 8000, 1)
     offset = obs.obs_properties_add_bool(props,
                                          "Manual Offset", "Enable Manual Offset")
 
@@ -962,6 +1024,8 @@ def script_properties():
     obs.obs_property_set_visible(rm, zoom.monitor_override)
     obs.obs_property_set_visible(mon_h, zoom.monitor_size_override)
     obs.obs_property_set_visible(mon_w, zoom.monitor_size_override)
+    obs.obs_property_set_visible(mouse_offset_x, True)
+    obs.obs_property_set_visible(mouse_offset_y, True)
     obs.obs_property_set_visible(mx, zoom.manual_offset)
     obs.obs_property_set_visible(my, zoom.manual_offset)
 
@@ -970,6 +1034,8 @@ def script_properties():
     obs.obs_property_set_modified_callback(mon_size, callback)
     obs.obs_property_set_modified_callback(offset, callback)
     obs.obs_property_set_modified_callback(debug_tog, callback)
+    obs.obs_property_set_modified_callback(mouse_offset_x, callback)
+    obs.obs_property_set_modified_callback(mouse_offset_y, callback)
     return props
 
 
@@ -1064,7 +1130,7 @@ def toggle_zoom(pressed):
             zoom.center_on_cursor()
             zoom.lock = True
             zoom.tick_enable()
-            log(f"Mouse position: {get_cursor_position()}")
+            log(f"Mouse position: {zoom.get_cursor_position()}")
         elif zoom.lock:
             zoom.lock = False
             zoom.tick_enable()  # For the zoom out transition
