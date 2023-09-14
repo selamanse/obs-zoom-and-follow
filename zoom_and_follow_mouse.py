@@ -650,13 +650,13 @@ class CursorWindow:
                 time = self.cubic_in_out(self.zo_timer / totalFrames)
                 crop_left = int(((1 - time) * self.zoom_x))
                 crop_top = int(((1 - time) * self.zoom_y))
-                crop_width = self.zoom_w + int(time * (self.source_w_raw - self.zoom_w))
-                crop_height = self.zoom_h + int(time * (self.source_h_raw - self.zoom_h))
+                crop_width = self.zoom_w + int(time * (self.source_w - self.zoom_w))
+                crop_height = self.zoom_h + int(time * (self.source_h - self.zoom_h))
                 self.update = True
             else:
                 # Leave crop left and top as 0
-                crop_width = self.source_w_raw
-                crop_height = self.source_h_raw
+                crop_width = self.source_w
+                crop_height = self.source_h
                 self.update = False
         else:
             # Zooming in
@@ -667,8 +667,8 @@ class CursorWindow:
                 time = self.cubic_in_out(self.zi_timer / totalFrames)
                 crop_left = int(time * self.zoom_x)
                 crop_top = int(time * self.zoom_y)
-                crop_width = self.source_w_raw - int(time * (self.source_w_raw - self.zoom_w))
-                crop_height = self.source_h_raw - int(time * (self.source_h_raw - self.zoom_h))
+                crop_width = self.source_w - int(time * (self.source_w - self.zoom_w))
+                crop_height = self.source_h - int(time * (self.source_h - self.zoom_h))
                 self.update = True if time < 0.8 else False
             else:
                 crop_left = int(self.zoom_x)
@@ -677,7 +677,30 @@ class CursorWindow:
                 crop_height = int(self.zoom_h)
                 self.update = False
 
-        self.obs_set_crop_settings(int((curpos.x - (crop_width / 2))), int((curpos.y - (crop_height / 2))), crop_width, crop_height)
+
+        # SELAMANSES DARK MAGIC
+        abs_pos_x = self.source_w - abs(curpos.x)
+
+        crop_left = int((abs_pos_x - (crop_width / 2)))
+
+        if (crop_left + crop_width) >= self.source_w:
+            crop_left = self.source_w - crop_width
+
+        if crop_left <= 0:
+            crop_left = 0
+
+        crop_top = int((curpos.y - (crop_height / 2)))
+        if (crop_top + crop_height) >= self.source_h:
+            crop_top = self.source_h - crop_height
+        
+        if crop_top <= 0:
+            crop_top = 0
+
+        #log(f"source w: {self.source_w}, source h: {self.source_h}")
+        #log(f"crop: {crop_left}, {crop_top}, {crop_width}, {crop_height}")
+
+        self.obs_set_crop_settings(crop_left, crop_top, crop_width, crop_height)
+
 
         # Stop ticking when zoom out is complete or
         # when zoomed in and not following the cursor
