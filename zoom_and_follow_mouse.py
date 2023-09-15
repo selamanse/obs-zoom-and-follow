@@ -683,15 +683,15 @@ class CursorWindow:
 
         crop_left = int((abs_pos_x - (crop_width / 2)))
 
-        if (crop_left + crop_width) >= self.source_w:
-            crop_left = self.source_w - crop_width
+        if (crop_left + crop_width + self.source_x_offset) >= self.source_w:
+            crop_left = self.source_w - crop_width - self.source_x_offset
 
         if crop_left <= 0:
             crop_left = 0
 
         crop_top = int((curpos.y - (crop_height / 2)))
-        if (crop_top + crop_height) >= self.source_h:
-            crop_top = self.source_h - crop_height
+        if (crop_top + crop_height + self.source_y_offset) >= self.source_h:
+            crop_top = self.source_h - crop_height - self.source_y_offset
         
         if crop_top <= 0:
             crop_top = 0
